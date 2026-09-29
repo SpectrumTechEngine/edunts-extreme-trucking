@@ -1,0 +1,16 @@
+{
+  "name": "Edunts Extreme Trucking",
+  "short_name": "Edunts Trucking",
+  "description": "Blast through the pick-up, haul it, blast through the drop-off. Ten crashes and your day is done.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
