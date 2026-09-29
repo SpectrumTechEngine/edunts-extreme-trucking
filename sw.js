@@ -1,5 +1,5 @@
 // Edunts Extreme Trucking service worker: always fetch the newest game when online, fall back to the saved copy offline.
-const C = 'edunts-trucking-v1';
+const C = 'edunts-trucking-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(C).then((c) => c.addAll(FILES)).catch(() => {})); });
 self.addEventListener('activate', (e) => {
