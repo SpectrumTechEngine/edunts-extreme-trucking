@@ -159,7 +159,8 @@
       </div>
       <div class="glass-card p-3 sm:p-4 rounded-2xl text-left text-xs sm:text-sm text-slate-300 space-y-2.5 max-w-md w-full">
         <div class="flex justify-between gap-3"><span>Steer</span><span><span class="kbd">◄</span> <span class="kbd">►</span> or <span class="kbd">A</span> <span class="kbd">D</span></span></div>
-        <div class="flex justify-between gap-3"><span>Floor it</span><span><span class="kbd">▲</span> <span class="kbd">W</span> or <span class="kbd">Space</span></span></div>
+        <div class="flex justify-between gap-3"><span>Floor it</span><span><span class="kbd">▲</span> or <span class="kbd">W</span></span></div>
+        <div class="flex justify-between gap-3"><span>Brake (up to a second)</span><span><span class="kbd">Space</span> or <span class="kbd">S</span></span></div>
         <div class="border-t border-slate-700/70 pt-2.5 text-slate-400 leading-relaxed">
           Truck stops sit off the road. Steer into the <span class="text-cyan-300 font-semibold">blue pick-up</span> lane and drive under the canopy to load up.
           Then haul it to the <span class="text-amber-300 font-semibold">orange drop-off</span> and drive through that too.
@@ -227,15 +228,16 @@
 
   <!-- Touch Controls -->
   <div id="touch-controls" class="w-full grid grid-cols-12 gap-1.5 sm:gap-3 z-20">
-    <div class="col-span-8 flex gap-1.5">
-      <button id="btn-left" aria-label="Steer left" class="touch-btn flex-1 py-4 sm:py-5 glass-panel rounded-xl text-2xl sm:text-3xl text-cyan-400 font-extrabold border border-cyan-500/40">◄</button>
-      <button id="btn-right" aria-label="Steer right" class="touch-btn flex-1 py-4 sm:py-5 glass-panel rounded-xl text-2xl sm:text-3xl text-cyan-400 font-extrabold border border-cyan-500/40">►</button>
-    </div>
-    <div class="col-span-4 flex">
-      <button id="btn-boost" aria-label="Floor it" class="touch-btn w-full py-4 sm:py-5 bg-emerald-600/80 border border-emerald-400/60 rounded-xl text-sm sm:text-base font-black text-white font-display flex flex-col items-center justify-center leading-none gap-1">
+    <button id="btn-left" aria-label="Steer left" class="touch-btn col-span-4 glass-panel rounded-xl text-3xl sm:text-4xl text-cyan-400 font-extrabold border border-cyan-500/40">◄</button>
+    <div class="col-span-4 flex flex-col gap-1.5">
+      <button id="btn-boost" aria-label="Floor it" class="touch-btn w-full py-2.5 sm:py-3 bg-emerald-600/80 border border-emerald-400/60 rounded-xl text-sm sm:text-base font-black text-white font-display flex flex-col items-center justify-center leading-none gap-1">
         <span>🚀 DRIVE</span><span class="text-[9px] sm:text-[11px] text-emerald-200 font-normal font-sans">hold to floor it</span>
       </button>
+      <button id="btn-brake" aria-label="Brake" class="touch-btn w-full py-2.5 sm:py-3 bg-red-700/80 border border-red-400/60 rounded-xl text-sm sm:text-base font-black text-white font-display flex flex-col items-center justify-center leading-none gap-1">
+        <span>🛑 BRAKE</span><span class="text-[9px] sm:text-[11px] text-red-200 font-normal font-sans">slows you for a second</span>
+      </button>
     </div>
+    <button id="btn-right" aria-label="Steer right" class="touch-btn col-span-4 glass-panel rounded-xl text-3xl sm:text-4xl text-cyan-400 font-extrabold border border-cyan-500/40">►</button>
   </div>
 </div>
 
@@ -356,6 +358,7 @@ function playSound(type) {
     case 'miss': osc('sawtooth', 320, 110, t, 0.35, 0.14, sfxBus, 1800); break;
     case 'beer': osc('sine', 520, 140, t, 0.7, 0.3, sfxBus); osc('sine', 530, 150, t + 0.05, 0.7, 0.2, sfxBus); break;
     case 'scrape': noise(t, 0.08, 0.12, sfxBus, 3000); break;
+    case 'brake': noise(t, 0.35, 0.1, sfxBus, 2200); osc('sawtooth', 140, 90, t, 0.3, 0.05, sfxBus, 600); break;
     case 'respawn': osc('triangle', 330, 660, t, 0.25, 0.2, sfxBus); break;
     case 'horn': osc('sawtooth', 311, null, t, 0.35, 0.12, sfxBus, 1500); osc('sawtooth', 370, null, t, 0.35, 0.1, sfxBus, 1500); break;
     case 'can':
@@ -425,7 +428,10 @@ let isTutorialMode = false, tutorialStep = 0, tutorialStepCompleted = false;
 const inputSeen = { left: false, right: false, drive: false };
 
 const player = { x: 0, y: 0, speedY: 7, speedX: 0, angle: 0, isExploded: false, explosionTimer: 0, invincibleTimer: 0, shieldActive: false };
-const keys = { left: false, right: false, up: false, space: false };
+const keys = { left: false, right: false, up: false, brake: false };
+// Brake: slows the truck for up to a second per press, then it speeds back up. The clock and traffic keep ramping.
+let brakeT = 0, brakeCool = 0;
+const BRAKE_TIME = 1, BRAKE_REST = 0.4;
 
 let houses = [], depots = [], traffic = [], powerups = [], beers = [], particles = [], debris = [], rings = [], floatingTexts = [], skidMarks = [];
 
@@ -525,7 +531,7 @@ function updateTutorialPrompt() {
   const steps = [
     ['Step 1: Press LEFT (◄) to steer left', 'Use the left arrow, the A key, or the on-screen ◄ button.'],
     ['Step 2: Press RIGHT (►) to steer right', 'Use the right arrow, the D key, or the on-screen ► button.'],
-    ['Step 3: Hold DRIVE (🚀) to floor it', 'Hold Space, W, the up arrow, or the green DRIVE button.'],
+    ['Step 3: Hold DRIVE (🚀) to floor it', 'Hold W, the up arrow, or the green DRIVE button. Need to slow down? Tap Space, S or the red BRAKE button.'],
     ['Step 4: Drive through the blue pick-up', 'Watch for the truck stop beside the road. Steer into its lane and drive under the canopy. No stopping.'],
     ['Step 5: Drive through the orange drop-off', "You're loaded. Haul it to the drop-off and drive through. That's €50."],
     ['🎓 Training complete!', 'Out on the real road, traffic hits back. Ten crashes ends your day. Starting now…']
@@ -540,7 +546,7 @@ function updateTutorialPrompt() {
 
 function initGameSession() {
   ensureAudio(); resizeCanvas();
-  elapsedTime = 0; worldY = 0; screenShake = 0; flash = 0; drunkTimer = 0; drunkLevel = 0; creep = 0; lastDrunkAudio = -1;
+  elapsedTime = 0; worldY = 0; screenShake = 0; flash = 0; brakeT = 0; brakeCool = 0; drunkTimer = 0; drunkLevel = 0; creep = 0; lastDrunkAudio = -1;
   deliveriesCount = 0; pickupsCount = 0; crashCount = 0; streak = 0; bestStreak = 0; distance = 0;
   carrying = false; activeDepot = null; gameOverTimer = 0;
   distToNext = isTutorialMode ? 1e9 : 900;
@@ -852,9 +858,14 @@ function update(dt) {
       player.speedX *= -0.3;
     }
     player.angle = player.speedX * 0.035;
-    const target = (keys.up || keys.space) ? topSpeed() : baseSpeed();
-    if (player.speedY < target) player.speedY = Math.min(target, player.speedY + 0.22 * f);
-    else player.speedY = Math.max(target, player.speedY - 0.1 * f);
+    if (brakeT > 0) { brakeT -= dt; if (brakeT <= 0) { brakeT = 0; brakeCool = BRAKE_REST; } }
+    else brakeCool = Math.max(0, brakeCool - dt);
+    if (brakeT > 0) player.speedY = Math.max(Math.max(3, baseSpeed() * 0.4), player.speedY - 0.3 * f);
+    else {
+      const target = keys.up ? topSpeed() : baseSpeed();
+      if (player.speedY < target) player.speedY = Math.min(target, player.speedY + 0.22 * f);
+      else player.speedY = Math.max(target, player.speedY - 0.1 * f);
+    }
   }
   const dy = player.speedY * f;
   distance += dy;
@@ -891,7 +902,7 @@ function update(dt) {
       spawnTraffic(isEasy());
       if (level() >= 5 && Math.random() < 0.3) spawnTraffic();
       const ease = isEasy() ? 3.4 - 2.2 * (elapsedTime / EASY_TIME) : 1; // far fewer cars early on
-      trafficTimer = ease * Math.max(0.22, 0.85 - level() * 0.05 - Math.max(0, elapsedTime - EASY_TIME) * 0.002 / RAMP) * rand(0.6, 1.3) * (10 / Math.max(player.speedY, 5));
+      trafficTimer = ease * Math.max(0.22, 0.85 - level() * 0.05 - Math.max(0, elapsedTime - EASY_TIME) * 0.002 / RAMP) * rand(0.6, 1.3) * (10 / Math.max(player.speedY, baseSpeed(), 5)); // braking doesn't thin the traffic
     }
   }
   const tw = truckW * 0.84, th = truckH * 0.93;
@@ -1163,7 +1174,12 @@ function drawTruck() {
   ctx.fillStyle = '#fde68a'; ctx.fillRect(-w * 0.2, -h / 2 + cabH * 0.55, w * 0.4, 3);
   ctx.fillStyle = '#fef9c3'; ctx.fillRect(-w / 2 + 3, -h / 2 + 1, w * 0.22, 3); ctx.fillRect(w / 2 - 3 - w * 0.22, -h / 2 + 1, w * 0.22, 3);
   ctx.fillStyle = '#1e293b'; ctx.fillRect(-w / 2 - 5, -h / 2 + cabH * 0.25, 5, 4); ctx.fillRect(w / 2, -h / 2 + cabH * 0.25, 5, 4);
-  ctx.fillStyle = '#ef4444'; ctx.fillRect(-w / 2 + 2, h / 2 - 3, w * 0.2, 3); ctx.fillRect(w / 2 - 2 - w * 0.2, h / 2 - 3, w * 0.2, 3);
+  if (brakeT > 0) { // brake lights glow
+    const bg = ctx.createRadialGradient(0, h / 2, 2, 0, h / 2, w * 0.9);
+    bg.addColorStop(0, 'rgba(239,68,68,.55)'); bg.addColorStop(1, 'rgba(239,68,68,0)');
+    ctx.fillStyle = bg; ctx.fillRect(-w, h / 2 - w * 0.2, w * 2, w);
+  }
+  ctx.fillStyle = brakeT > 0 ? '#fca5a5' : '#ef4444'; ctx.fillRect(-w / 2 + 2, h / 2 - 3, w * 0.2, 3); ctx.fillRect(w / 2 - 2 - w * 0.2, h / 2 - 3, w * 0.2, 3);
   ctx.restore(); ctx.globalAlpha = 1;
   if (player.shieldActive) {
     ctx.save(); ctx.strokeStyle = 'rgba(34,211,238,.8)'; ctx.lineWidth = 3; ctx.shadowColor = '#22d3ee'; ctx.shadowBlur = 16;
@@ -1269,10 +1285,15 @@ function gameLoop(now) {
 
 /* ============================ Input ============================ */
 function pressKey(name, down) {
+  if (name === 'brake') {
+    // each new press gives up to a second of braking; letting go ends it early
+    if (down && !keys.brake && brakeT <= 0 && brakeCool <= 0 && isPlaying && !isPaused && !player.isExploded) { brakeT = BRAKE_TIME; playSound('brake'); }
+    else if (!down && brakeT > 0) { brakeT = 0; brakeCool = BRAKE_REST; }
+  }
   keys[name] = down;
-  if (down) { if (name === 'left') inputSeen.left = true; if (name === 'right') inputSeen.right = true; if (name === 'up' || name === 'space') inputSeen.drive = true; }
+  if (down) { if (name === 'left') inputSeen.left = true; if (name === 'right') inputSeen.right = true; if (name === 'up') inputSeen.drive = true; }
 }
-const keyMap = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', Space: 'space' };
+const keyMap = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up', Space: 'brake', KeyS: 'brake', ArrowDown: 'brake' };
 window.addEventListener('keydown', e => {
   if (e.code === 'KeyP' || e.code === 'Escape') { togglePause(); return; }
   if (e.code === 'Enter' && !isPlaying) {
@@ -1290,7 +1311,7 @@ function bindHold(id, keyName) {
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => el.addEventListener(ev, () => { el.classList.remove('pressed'); pressKey(keyName, false); }));
   el.addEventListener('contextmenu', e => e.preventDefault());
 }
-bindHold('btn-left', 'left'); bindHold('btn-right', 'right'); bindHold('btn-boost', 'up');
+bindHold('btn-left', 'left'); bindHold('btn-right', 'right'); bindHold('btn-boost', 'up'); bindHold('btn-brake', 'brake');
 
 
 /* ============================ Intro ============================ */
