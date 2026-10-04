@@ -23,6 +23,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Barlow:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<!-- Usage numbers and owner tools, shared by every Spectrum Tech Engine app -->
+<script src="https://thespectrumtechengine.com/ste-owner.js" data-app="edunts-extreme-trucking" defer></script>
 <script>
   if (window.tailwind) tailwind.config = {
     theme: { extend: { fontFamily: {
@@ -516,8 +518,11 @@ function spawnTraffic(easy) {
 }
 
 /* ============================ Flow ============================ */
-function startGame() { isTutorialMode = false; document.getElementById('tutorial-banner').classList.add('hidden'); initGameSession(); }
+// Usage numbers for the owner (ste-owner.js on the website); never gets in the way of the game
+function ste(f, ...a) { try { if (window.STE && window.STE[f]) window.STE[f](...a); } catch (e) {} }
+function startGame() { isTutorialMode = false; document.getElementById('tutorial-banner').classList.add('hidden'); initGameSession(); ste('track', 'play'); }
 function startTutorial() {
+  ste('detail', 'tutorial-started');
   isTutorialMode = true; tutorialStep = 0; tutorialStepCompleted = false;
   for (const k in inputSeen) inputSeen[k] = false;
   document.getElementById('tutorial-banner').classList.remove('hidden');
@@ -564,6 +569,7 @@ function gameOver() {
   document.getElementById('beer-warning-banner').classList.add('hidden');
   const pay = deliveriesCount * PAY, best = getBest(), newBest = pay > best;
   if (newBest) setBest(pay);
+  if (!isTutorialMode) { ste('value', 'deliveries', deliveriesCount); ste('value', 'minutes-driven', +(elapsedTime / 60).toFixed(1)); ste('value', 'km-driven', +(distance / PX_PER_M / 1000).toFixed(1)); if (newBest) ste('detail', 'new-best-day'); }
   const mins = Math.floor(elapsedTime / 60), secs = Math.floor(elapsedTime % 60);
   document.getElementById('dk-date').textContent = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   document.getElementById('dk-pickups').textContent = pickupsCount;
@@ -669,6 +675,7 @@ function docketMessage() {
 // Share menu with the docket picture (pick WhatsApp); falls back to a WhatsApp message with the link
 async function shareDocket() {
   if (!lastDay) return;
+  ste('track', 'share');
   lastDay.shared = true; disarmNewDay();
   const text = docketMessage(), wa = 'https://wa.me/?text=' + encodeURIComponent(text);
   if (!(navigator.share && navigator.canShare)) { if (!window.open(wa, '_blank')) location.href = wa; return; }
