@@ -1,0 +1,10 @@
+{
+  "appId": "com.thespectrumtechengine.eduntstrucking",
+  "appName": "Edunts Trucking",
+  "webDir": "www",
+  "backgroundColor": "#0f0c29",
+  "server": {
+    "url": "https://thespectrumtechengine.com/edunts-extreme-trucking/",
+    "errorPath": "index.html"
+  }
+}
