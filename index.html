@@ -71,6 +71,14 @@
   #beer-warning-banner { animation: canbox .5s steps(2) infinite; }
   @keyframes canbox { 50% { border-color: #fde047; } }
   @keyframes jobflash { 50% { filter: brightness(1.6); } }
+  /* night shift / morning banner: same shape as the can banner, calm colours, gentle twinkle */
+  #shift-banner { transition: opacity .4s; }
+  #shift-banner.night { border-color: #818cf8; background: rgba(23, 20, 66, .92); }
+  #shift-banner.day { border-color: #fbbf24; background: rgba(66, 40, 8, .9); }
+  .shift-title { color: #e0e7ff; text-shadow: 0 0 18px #6366f1, 3px 3px 0 #1e1b4b; animation: twinkle 1.6s ease-in-out infinite; }
+  #shift-banner.day .shift-title { color: #fef3c7; text-shadow: 0 0 18px #f59e0b, 3px 3px 0 #78350f; }
+  @keyframes twinkle { 50% { filter: brightness(1.35); } }
+  @media (prefers-reduced-motion: reduce) { .shift-title { animation: none; } }
   @media (prefers-reduced-motion: reduce) { #hud-job.urgent { animation: none; } }
 
   /* ---------- Intro ---------- */
@@ -143,6 +151,10 @@
   <div id="game-wrap" class="relative flex-1 min-h-0 rounded-2xl overflow-hidden border border-slate-700/70 bg-slate-900">
     <canvas id="game"></canvas>
 
+    <div id="shift-banner" class="absolute left-2 right-2 z-20 hidden rounded-2xl border-4 px-3 py-2 sm:py-3 text-center pointer-events-none" style="top: 30%;">
+      <div class="shift-title font-display text-2xl sm:text-5xl leading-none" id="shift-title"></div>
+      <div class="mt-1 text-xs sm:text-base text-indigo-100 font-bold" id="shift-sub"></div>
+    </div>
     <div id="beer-warning-banner" class="absolute top-2 left-2 right-2 z-20 hidden rounded-2xl border-4 border-red-500 bg-red-950/90 px-3 py-2 sm:py-3 text-center pointer-events-none">
       <div class="can-flash font-display text-2xl sm:text-5xl leading-none">🍺 EDUNTS HAD A CAN 🍺</div>
       <div class="mt-1 text-xs sm:text-base text-red-100 font-bold"><span id="can-count"></span>Steering reversed! Drive <span id="beer-countdown">10</span>s without crashing to sober up.</div>
@@ -207,6 +219,7 @@
           <div class="flex justify-between"><span>Loads picked up</span><span id="dk-pickups" class="font-bold"></span></div>
           <div class="flex justify-between"><span>Loads delivered</span><span id="dk-deliveries" class="font-bold"></span></div>
           <div class="flex justify-between"><span>Rate per delivery</span><span class="font-bold">€50.00</span></div>
+          <div id="dk-overtime-row" class="flex justify-between hidden"><span>🌙 On overtime (€75 each)</span><span id="dk-overtime" class="font-bold"></span></div>
           <div class="flex justify-between text-slate-600"><span>Distance driven</span><span id="dk-distance"></span></div>
           <div class="flex justify-between text-slate-600"><span>Time on the road</span><span id="dk-time"></span></div>
           <div class="flex justify-between text-slate-600"><span>Best run without a crash</span><span id="dk-streak"></span></div>
@@ -430,6 +443,11 @@ let W = 0, H = 0, DPR = 1;
 const road = { x: 0, w: 0, laneW: 0, bayW: 0 };
 let truckW = 40, truckH = 108;
 const MAX_CRASHES = 10, PAY = 50, PX_PER_M = 8;
+// The night shift: from €500 it gets dark and every delivery pays overtime (time and a half).
+// Morning comes after €500 of overtime, then night falls again after another €250 of day work, and so on.
+const OVERTIME_PAY = 75, FIRST_NIGHT = 500, NIGHT_LEN = 500, DAY_LEN = 250;
+let wages = 0, night = false, nightAmt = 0, nextShift = FIRST_NIGHT, overtimeDeliveries = 0, shiftBannerTimer = 0;
+const payNow = () => (night ? OVERTIME_PAY : PAY);
 
 let isPlaying = false, isPaused = false, lastTime = performance.now();
 let elapsedTime = 0, worldY = 0, screenShake = 0, flash = 0, drunkTimer = 0, drunkLevel = 0, creep = 0;
@@ -569,6 +587,7 @@ function initGameSession() {
   ensureAudio(); resizeCanvas();
   elapsedTime = 0; worldY = 0; screenShake = 0; flash = 0; brakeT = 0; brakeCool = 0; drunkTimer = 0; drunkLevel = 0; creep = 0; lastDrunkAudio = -1;
   deliveriesCount = 0; pickupsCount = 0; crashCount = 0; streak = 0; bestStreak = 0; distance = 0;
+  wages = 0; night = false; nightAmt = 0; nextShift = FIRST_NIGHT; overtimeDeliveries = 0; hideShiftBanner();
   carrying = false; activeDepot = null; gameOverTimer = 0;
   distToNext = isTutorialMode ? 1e9 : 900;
   trafficTimer = 4; shieldTimer = rand(10, 16); beerTimer = rand(70, 80);
@@ -583,9 +602,10 @@ function initGameSession() {
 function gameOver() {
   isPlaying = false; stopTechnoTrack(); drunkTimer = 0; setDrunkAudio(0); playSound('end'); updateHUD(true);
   document.getElementById('beer-warning-banner').classList.add('hidden');
-  const pay = deliveriesCount * PAY, best = getBest(), newBest = pay > best;
+  hideShiftBanner();
+  const pay = wages, best = getBest(), newBest = pay > best;
   if (newBest) setBest(pay);
-  if (!isTutorialMode) { ste('value', 'deliveries', deliveriesCount); ste('value', 'minutes-driven', +(elapsedTime / 60).toFixed(1)); ste('value', 'km-driven', +(distance / PX_PER_M / 1000).toFixed(1)); if (newBest) ste('detail', 'new-best-day'); }
+  if (!isTutorialMode) { ste('value', 'deliveries', deliveriesCount); ste('value', 'wages', wages); if (overtimeDeliveries) ste('detail', 'reached-overtime'); ste('value', 'minutes-driven', +(elapsedTime / 60).toFixed(1)); ste('value', 'km-driven', +(distance / PX_PER_M / 1000).toFixed(1)); if (newBest) ste('detail', 'new-best-day'); }
   const mins = Math.floor(elapsedTime / 60), secs = Math.floor(elapsedTime % 60);
   document.getElementById('dk-date').textContent = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
   document.getElementById('dk-pickups').textContent = pickupsCount;
@@ -603,8 +623,10 @@ function gameOver() {
   else if (deliveriesCount < 14) rating = 'Highway maniac. The insurance company is not impressed.';
   else rating = 'Legend of the long haul. They’ll name a truck stop after you.';
   document.getElementById('dk-rating').textContent = rating;
+  document.getElementById('dk-overtime-row').classList.toggle('hidden', !overtimeDeliveries);
+  document.getElementById('dk-overtime').textContent = overtimeDeliveries + (overtimeDeliveries === 1 ? ' delivery' : ' deliveries');
   lastDay = { pay, deliveries: deliveriesCount, km: (distance / PX_PER_M / 1000).toFixed(1), time: `${mins}m ${String(secs).padStart(2, '0')}s`,
-    streak: bestStreak, newBest: newBest && pay > 0, rating, shared: false };
+    streak: bestStreak, newBest: newBest && pay > 0, rating, shared: false, overtime: overtimeDeliveries };
   const ov = document.getElementById('gameover-overlay');
   ov.classList.remove('hidden');
   // Players are steering hard when the day ends: ignore taps for a moment so one can't land on a button
@@ -661,7 +683,7 @@ async function makeDocketImage() {
   x.textAlign = 'left'; x.fillStyle = '#0f172a'; x.font = disp(46); x.fillText("The day's docket", px + 50, py + 85);
   x.font = body(28, 500); x.fillStyle = '#64748b'; x.fillText('Edunts Haulage Ltd. · Driver copy', px + 50, py + 130);
   x.setLineDash([14, 10]); x.strokeStyle = '#94a3b8'; x.lineWidth = 3; x.beginPath(); x.moveTo(px + 50, py + 160); x.lineTo(px + pw - 50, py + 160); x.stroke(); x.setLineDash([]);
-  const rows = [['Loads delivered', String(d.deliveries)], ['Distance driven', d.km + ' km'], ['Time on the road', d.time], ['Best run without a crash', String(d.streak)]];
+  const rows = [['Loads delivered', String(d.deliveries)], ...(d.overtime ? [['🌙 On overtime', String(d.overtime)]] : []), ['Distance driven', d.km + ' km'], ['Time on the road', d.time], ['Best run without a crash', String(d.streak)]];
   rows.forEach(([k, v], i) => {
     const y = py + 225 + i * 62;
     x.textAlign = 'left'; x.font = body(36, 600); x.fillStyle = '#334155'; x.fillText(k, px + 50, y);
@@ -684,7 +706,8 @@ async function makeDocketImage() {
 
 function docketMessage() {
   const d = lastDay;
-  return `🚛 I earned €${d.pay} on Edunts Extreme Trucking! ${d.deliveries} ${d.deliveries === 1 ? 'delivery' : 'deliveries'} before my truck was totalled.` +
+  return `🚛 I earned €${d.pay} on Edunts Extreme Trucking! ${d.deliveries} ${d.deliveries === 1 ? 'delivery' : 'deliveries'} before my truck was totalled` +
+         (d.overtime ? `, and I worked ${d.overtime} ${d.overtime === 1 ? 'delivery' : 'deliveries'} of overtime! 🌙` : '.') +
          `\n\nCan you beat my day? Play here:\n${GAME_URL}`;
 }
 
@@ -800,14 +823,42 @@ function driveThrough(d) {
     if (isTutorialMode && tutorialStep === 3) { tutorialStep = 4; updateTutorialPrompt(); }
   } else {
     carrying = false; deliveriesCount++; streak++; bestStreak = Math.max(bestStreak, streak);
+    const earned = payNow();
+    wages += earned;
+    if (night) overtimeDeliveries++;
     burst(player.x, player.y, 70, ['#fbbf24', '#34d399', '#22d3ee', '#f472b6', '#ffffff'], 11, 'confetti');
-    addText(W / 2, H * 0.4, 'DELIVERED! +€50', '#34d399', 36, 1.5);
+    addText(W / 2, H * 0.4, night ? `DELIVERED! +€${earned} OVERTIME` : `DELIVERED! +€${earned}`, night ? '#a5b4fc' : '#34d399', night ? 32 : 36, 1.5);
+    if (!isTutorialMode) checkShift();
     if (streak >= 3) addText(W / 2, H * 0.4 + 40, `${streak} in a row without a crash!`, '#fde047', 16, 1.5);
     screenShake = Math.max(screenShake, 8);
     playSound('deliver');
     distToNext = isTutorialMode ? 1e9 : 900 + rand(0, 700);
     if (isTutorialMode && tutorialStep === 4) { tutorialStep = 5; updateTutorialPrompt(); }
   }
+}
+
+/* ---------- Night shift and morning ---------- */
+function checkShift() {
+  if (wages < nextShift) return;
+  night = !night;
+  nextShift += night ? NIGHT_LEN : DAY_LEN;
+  showShiftBanner(night);
+  ste('detail', night ? 'night-shift' : 'morning');
+}
+function showShiftBanner(isNight) {
+  const b = document.getElementById('shift-banner');
+  document.getElementById('shift-title').textContent = isNight ? '🌙 EDUNTS WORKING OVERTIME 🌙' : '☀️ MORNING! ☀️';
+  document.getElementById('shift-sub').textContent = isNight ? `Time and a half — every delivery now pays €${OVERTIME_PAY}` : `Edunts made it through the night. Back to €${PAY} a delivery.`;
+  b.classList.remove('hidden', 'night', 'day'); b.classList.add(isNight ? 'night' : 'day');
+  b.style.opacity = '1';
+  playSound(isNight ? 'respawn' : 'powerup');
+  clearTimeout(shiftBannerTimer);
+  shiftBannerTimer = setTimeout(() => { b.style.opacity = '0'; shiftBannerTimer = setTimeout(hideShiftBanner, 400); }, 3200);
+}
+function hideShiftBanner() {
+  clearTimeout(shiftBannerTimer);
+  const b = document.getElementById('shift-banner');
+  if (b) { b.classList.add('hidden'); b.style.opacity = '1'; }
 }
 
 function missDepot(d) {
@@ -837,6 +888,7 @@ function update(dt) {
   if (!isPlaying || isPaused) return;
   const f = Math.min(dt * 60, 3);
   elapsedTime += dt;
+  nightAmt += ((night ? 1 : 0) - nightAmt) * Math.min(1, dt * 0.9);   // fades over a couple of seconds
   if (!isTutorialMode && !player.isExploded) creep = Math.min(4, creep + dt * 0.0075 / RAMP);
 
   if (isTutorialMode) {
@@ -925,7 +977,8 @@ function update(dt) {
       spawnTraffic(isEasy());
       if (level() >= 5 && Math.random() < 0.3) spawnTraffic();
       const ease = isEasy() ? 3.4 - 2.2 * (elapsedTime / EASY_TIME) : 1; // far fewer cars early on
-      trafficTimer = ease * Math.max(0.22, 0.85 - level() * 0.05 - Math.max(0, elapsedTime - EASY_TIME) * 0.002 / RAMP) * rand(0.6, 1.3) * (10 / Math.max(player.speedY, baseSpeed(), 5)); // braking doesn't thin the traffic
+      // traffic thickens with deliveries made (not with the clock), so careful drivers aren't swamped
+      trafficTimer = ease * Math.max(0.22, 0.85 - level() * 0.05 - Math.max(0, deliveriesCount - 4) * 0.012) * rand(0.6, 1.3) * (10 / Math.max(player.speedY, baseSpeed(), 5)); // braking doesn't thin the traffic
     }
   }
   const tw = truckW * 0.84, th = truckH * 0.93;
@@ -953,12 +1006,12 @@ function update(dt) {
     if (shieldTimer <= 0) { powerups.push({ x: laneCenter((Math.random() * 4) | 0), y: -40, t: 0 }); shieldTimer = rand(12, 18); }
     beerTimer -= dt;
     if (beerTimer <= 0) {
-      const lane = Math.random() < 0.6 ? clamp(Math.floor((player.x - road.x) / road.laneW), 0, 3) : (Math.random() * 4) | 0;
+      // 3 in 10 cans land in your lane; the rest anywhere
+      const lane = Math.random() < 0.3 ? clamp(Math.floor((player.x - road.x) / road.laneW), 0, 3) : (Math.random() * 4) | 0;
       beers.push({ x: laneCenter(lane), y: -40, t: 0 });
-      // rare at first, much more common as the day goes on
-      const gap = Math.max(2.5, 18 - elapsedTime * 0.06 / RAMP);
-      beerTimer = gap * rand(0.7, 1.3);
-      if (elapsedTime > 150 * RAMP && Math.random() < 0.35) beers.push({ x: laneCenter((lane + 1 + ((Math.random() * 3) | 0)) % 4), y: -140, t: 0 });
+      // rare at first, more common the more you deliver — but always at least 8 seconds apart
+      const gap = Math.max(8, 18 - deliveriesCount * 0.4);
+      beerTimer = gap * rand(1, 1.3);
     }
   }
   const pr = truckW * 0.5 + 16;
@@ -1021,7 +1074,7 @@ function jobInfo() {
 }
 function updateHUD(force) {
   if (force) for (const k in hudCache) delete hudCache[k];
-  setHUD('hud-wage', '€' + deliveriesCount * PAY);
+  setHUD('hud-wage', '<span style="white-space:nowrap">€' + wages + (night ? '<span style="font-size:.75em"> 🌙</span>' : '') + '</span>');
   setHUD('hud-deliveries', String(deliveriesCount) + (streak >= 3 ? ' <span class="text-xs">🔥' + streak + '</span>' : ''));
   const left = MAX_CRASHES - crashCount;
   setHUD('hud-crashes', `<span class="${left <= 3 ? 'text-red-400' : ''}">${crashCount}/${MAX_CRASHES}</span>`);
@@ -1032,7 +1085,7 @@ function updateHUD(force) {
   else if (isTutorialMode && tutorialStep < 3) text = 'Training: follow the steps above';
   else if (j.side) text = `${j.kind === 'pickup' ? '📦 Pick-up' : '🏁 Drop-off'} on the ${j.side.toUpperCase()} ${j.side === 'left' ? '◄◄' : '►►'} ${j.m} m`;
   else if (j.kind === 'pickup') text = `📦 Next pick-up in ${j.m} m`;
-  else text = `🚛 Loaded! Drop-off in ${j.m} m · €50 waiting`;
+  else text = `🚛 Loaded! Drop-off in ${j.m} m · €${payNow()} waiting${night ? ' (overtime)' : ''}`;
   setHUD('hud-job', text);
   const urgent = isPlaying && !!j.side && j.m < 90;
   job.classList.toggle('urgent', urgent);
@@ -1092,15 +1145,21 @@ function drawBayCanopy(d) {
   if (d.flash > 0) { ctx.globalAlpha = d.flash; ctx.fillStyle = '#fff'; ctx.fillRect(x0, d.y - ch / 2, cw, ch); ctx.globalAlpha = 1; }
 }
 
+// blends two #rrggbb colours: t=0 gives a, t=1 gives b (used to fade between day and night)
+function mixHex(a, b, t) {
+  const p = (h, i) => parseInt(h.slice(i, i + 2), 16);
+  const c = i => Math.round(p(a, i) + (p(b, i) - p(a, i)) * t);
+  return `rgb(${c(1)},${c(3)},${c(5)})`;
+}
 function drawGround() {
-  ctx.fillStyle = '#1b3a2a'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#1f4331';
+  ctx.fillStyle = mixHex('#1b3a2a', '#0b1c22', nightAmt); ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = mixHex('#1f4331', '#0e2229', nightAmt);
   const off = worldY % 80;
   for (let y = off - 80; y < H; y += 80) ctx.fillRect(0, y, W, 40);
 }
 function drawRoad() {
-  ctx.fillStyle = '#6b7280'; ctx.fillRect(road.x - 8, 0, road.w + 16, H);
-  ctx.fillStyle = '#272c35'; ctx.fillRect(road.x, 0, road.w, H);
+  ctx.fillStyle = mixHex('#6b7280', '#3b4252', nightAmt); ctx.fillRect(road.x - 8, 0, road.w + 16, H);
+  ctx.fillStyle = mixHex('#272c35', '#151821', nightAmt); ctx.fillRect(road.x, 0, road.w, H);
   ctx.fillStyle = '#e5e7eb'; ctx.fillRect(road.x + 4, 0, 3, H); ctx.fillRect(road.x + road.w - 7, 0, 3, H);
   ctx.fillStyle = '#f59e0b';
   const cx = road.x + road.w / 2;
@@ -1152,9 +1211,17 @@ function drawCar(c) {
     const dir = (c.target > c.lane ? 1 : -1) * (c.oncoming ? -1 : 1);
     ctx.fillStyle = '#fbbf24'; ctx.fillRect(dir * (w / 2) - 3, -h / 2, 6, 5); ctx.fillRect(dir * (w / 2) - 3, h / 2 - 5, 6, 5);
   }
+  if (!c.oncoming && nightAmt > 0.02) {
+    // red tail-light glow on cars ahead at night
+    ctx.globalCompositeOperation = 'lighter';
+    const tg = ctx.createRadialGradient(0, h / 2, 2, 0, h / 2, w * 0.9);
+    tg.addColorStop(0, `rgba(239,68,68,${0.55 * nightAmt})`); tg.addColorStop(1, 'rgba(239,68,68,0)');
+    ctx.fillStyle = tg; ctx.fillRect(-w, h / 2 - w, w * 2, w * 2);
+    ctx.globalCompositeOperation = 'source-over';
+  }
   if (c.oncoming) {
     const g = ctx.createLinearGradient(0, -h / 2, 0, -h / 2 - 70);
-    g.addColorStop(0, 'rgba(254,249,195,.22)'); g.addColorStop(1, 'rgba(254,249,195,0)');
+    g.addColorStop(0, `rgba(254,249,195,${0.22 + 0.25 * nightAmt})`); g.addColorStop(1, 'rgba(254,249,195,0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(w / 2, -h / 2); ctx.lineTo(w, -h / 2 - 70); ctx.lineTo(-w, -h / 2 - 70); ctx.closePath(); ctx.fill();
   }
   ctx.restore();
@@ -1165,9 +1232,10 @@ function drawTruck() {
   const blink = player.invincibleTimer > 0 && Math.floor(player.invincibleTimer * 12) % 2 === 0;
   ctx.save(); ctx.translate(x, y); ctx.rotate(player.angle);
   if (blink) ctx.globalAlpha = 0.4;
-  const g = ctx.createLinearGradient(0, -h / 2, 0, -h / 2 - 110);
-  g.addColorStop(0, 'rgba(254,249,195,.28)'); g.addColorStop(1, 'rgba(254,249,195,0)');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(w / 2, -h / 2); ctx.lineTo(w * 1.1, -h / 2 - 110); ctx.lineTo(-w * 1.1, -h / 2 - 110); ctx.closePath(); ctx.fill();
+  const beam = 110 + 50 * nightAmt;   // headlights reach further at night
+  const g = ctx.createLinearGradient(0, -h / 2, 0, -h / 2 - beam);
+  g.addColorStop(0, `rgba(254,249,195,${0.28 + 0.3 * nightAmt})`); g.addColorStop(1, 'rgba(254,249,195,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-w / 2, -h / 2); ctx.lineTo(w / 2, -h / 2); ctx.lineTo(w * 1.2, -h / 2 - beam); ctx.lineTo(-w * 1.2, -h / 2 - beam); ctx.closePath(); ctx.fill();
   ctx.fillStyle = 'rgba(0,0,0,.38)'; rr(-w / 2 + 5, -h / 2 + 7, w, h, 6); ctx.fill();
   const cabH = h * 0.21, gap = h * 0.025, ty = -h / 2 + cabH + gap, th = h - cabH - gap;
   ctx.fillStyle = '#0b1220';
@@ -1235,9 +1303,11 @@ function render() {
   if (drunkTimer > 0) { const a = Math.sin(elapsedTime * 2.2) * 0.02 * Math.min(drunkLevel, 3); ctx.translate(W / 2, H / 2); ctx.rotate(a); ctx.translate(-W / 2 + Math.sin(elapsedTime * 1.7) * 8, -H / 2); }
   drawGround();
   for (const o of houses) if (o.y > -150 && o.y < H + 150) drawHouse(o);
+  if (nightAmt > 0.01) drawNightScenery();   // dims the grass and houses only; road, cars and pickups stay clear
   for (const d of depots) drawBayBase(d);
   drawRoad();
   for (const d of depots) if (!d.done && !d.missed) drawBayChevronsOnRoad(d);
+  if (nightAmt > 0.01) drawStreetLights();
   for (const s of skidMarks) { if (s.a <= 0) continue; ctx.fillStyle = `rgba(10,10,10,${s.a})`; ctx.fillRect(s.x - 2, s.y, 4, 7); }
   for (const p of powerups) drawPickup(p.x, p.y, p.t, '#22d3ee', '🛡️', false);
   for (const b of beers) drawPickup(b.x, b.y, b.t, '#ef4444', '🍺', true);
@@ -1286,6 +1356,51 @@ function render() {
     ctx.fillStyle = 'rgba(15,23,42,.85)'; rr(10, H - 34, 80, 22, 11); ctx.fill(); ctx.fillStyle = '#67e8f9'; ctx.fillText('🛡️ Shield', 20, H - 22.5);
   }
 }
+/* ---------- Night scenery ---------- */
+function drawNightScenery() {
+  ctx.fillStyle = `rgba(4,8,30,${0.45 * nightAmt})`;
+  ctx.fillRect(0, 0, road.x - 8, H); ctx.fillRect(road.x + road.w + 8, 0, W, H);
+  ctx.globalCompositeOperation = 'lighter';
+  for (const o of houses) {
+    if (o.y < -150 || o.y > H + 150) continue;
+    const sw = road.x - 8, x = o.side === 'left' ? 0 : road.x + road.w + 8, w = sw;
+    if (w < 20) continue;
+    if (o.type === 'house') {
+      // lit windows (the same house shape drawHouse uses)
+      const hw = Math.min(w * 0.62, 110), hh = 80 + o.s * 40, hx = o.side === 'left' ? x + w * 0.18 : x + w - w * 0.18 - hw;
+      const win = Math.max(6, hw * 0.14);
+      ctx.fillStyle = `rgba(253,224,138,${0.75 * nightAmt})`;
+      for (const [fx, fy] of [[0.2, 0.25], [0.62, 0.25], [0.2, 0.6], [0.62, 0.6]]) {
+        if ((o.s * 10 + fx * 7 + fy * 3) % 1 < 0.25) continue;   // a few windows stay dark
+        ctx.fillRect(hx + hw * fx, o.y - hh / 2 + hh * fy, win, win * 0.8);
+      }
+    } else if (o.type === 'pond') {
+      // moonlight on the water
+      ctx.strokeStyle = `rgba(226,232,240,${0.35 * nightAmt})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(x + w / 2 - w * 0.06, o.y - 12, w * 0.12, 6, 0, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x + w / 2 + w * 0.05, o.y + 8, w * 0.08, 4, 0, 0, 7); ctx.stroke();
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+function drawStreetLights() {
+  const off = worldY % 260;
+  ctx.globalCompositeOperation = 'lighter';
+  for (let y = off - 260; y < H + 260; y += 260) {
+    for (const [px, py] of [[road.x - 14, y], [road.x + road.w + 14, y + 130]]) {
+      const g = ctx.createRadialGradient(px, py, 2, px, py, 95);
+      g.addColorStop(0, `rgba(255,210,122,${0.32 * nightAmt})`); g.addColorStop(1, 'rgba(255,210,122,0)');
+      ctx.fillStyle = g; ctx.fillRect(px - 95, py - 95, 190, 190);
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = `rgba(255,236,170,${0.9 * nightAmt})`;
+  for (let y = off - 260; y < H + 260; y += 260) {
+    ctx.beginPath(); ctx.arc(road.x - 14, y, 3.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(road.x + road.w + 14, y + 130, 3.5, 0, 7); ctx.fill();
+  }
+}
+
 // chevrons live on the main road, so they're drawn after it
 function drawBayChevronsOnRoad(d) {
   const bot = d.y + d.len / 2, s = d.side === 'left' ? -1 : 1, edge = d.side === 'left' ? road.x : road.x + road.w;
