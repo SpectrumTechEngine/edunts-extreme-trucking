@@ -446,6 +446,10 @@ const MAX_CRASHES = 10, PAY = 50, PX_PER_M = 8;
 // The night shift: from €500 it gets dark and every delivery pays overtime (time and a half).
 // Morning comes after €500 of overtime, then night falls again after another €250 of day work, and so on.
 const OVERTIME_PAY = 75, FIRST_NIGHT = 500, NIGHT_LEN = 500, DAY_LEN = 250;
+// Two crashes while he's had a can sobers Edunts up (so one can costs at most two trucks).
+// Shield saves don't count, and the count starts again with every new can.
+const SOBER_AFTER_CRASHES = 2;
+let drunkCrashes = 0;
 let wages = 0, night = false, nightAmt = 0, nextShift = FIRST_NIGHT, overtimeDeliveries = 0, shiftBannerTimer = 0;
 const payNow = () => (night ? OVERTIME_PAY : PAY);
 
@@ -587,7 +591,7 @@ function initGameSession() {
   ensureAudio(); resizeCanvas();
   elapsedTime = 0; worldY = 0; screenShake = 0; flash = 0; brakeT = 0; brakeCool = 0; drunkTimer = 0; drunkLevel = 0; creep = 0; lastDrunkAudio = -1;
   deliveriesCount = 0; pickupsCount = 0; crashCount = 0; streak = 0; bestStreak = 0; distance = 0;
-  wages = 0; night = false; nightAmt = 0; nextShift = FIRST_NIGHT; overtimeDeliveries = 0; hideShiftBanner();
+  wages = 0; night = false; nightAmt = 0; nextShift = FIRST_NIGHT; overtimeDeliveries = 0; hideShiftBanner(); drunkCrashes = 0;
   carrying = false; activeDepot = null; gameOverTimer = 0;
   distToNext = isTutorialMode ? 1e9 : 900;
   trafficTimer = 4; shieldTimer = rand(10, 16); beerTimer = rand(70, 80);
@@ -792,7 +796,18 @@ function crash(car) {
     for (let i = 0; i < 8; i++) { const a = Math.random() * 6.28, sp = rand(3, 9); debris.push({ x: player.x, y: player.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6, vr: rand(-.3, .3), life: 1.6, w: 12, h: 12, color: '#f59e0b' }); }
     addText(W / 2, H * 0.4 + 40, 'CARGO LOST! Back to a pick-up', '#fcd34d', 18, 1.8);
   }
-  if (drunkTimer > 0) drunkTimer = DRUNK_TIME; // must drive 10 crash-free seconds to sober up
+  if (drunkTimer > 0) {
+    drunkCrashes++;
+    if (drunkCrashes >= SOBER_AFTER_CRASHES) {
+      // the second crash sobers him up
+      drunkTimer = 0; drunkLevel = 0; drunkCrashes = 0;
+      document.getElementById('beer-warning-banner').classList.add('hidden');
+      addText(W / 2, H * 0.4 + 44, 'Two crashes sobered him up!', '#a3e635', 20, 2);
+    } else {
+      drunkTimer = DRUNK_TIME; // otherwise: drive 10 crash-free seconds to sober up
+      addText(W / 2, H * 0.4 + 44, "1 more crash and he'll sober up", '#fca5a5', 17, 2);
+    }
+  }
   bigExplosion((player.x + car.x) / 2, (player.y + car.y) / 2, car.color);
   player.isExploded = true; player.explosionTimer = 1.3; player.speedX = 0;
   addText(W / 2, H * 0.4, crashCount >= MAX_CRASHES ? 'TRUCK #10 WRITTEN OFF' : `CRASH ${crashCount}/${MAX_CRASHES}`, '#f87171', 30, 1.6);
@@ -901,7 +916,7 @@ function update(dt) {
   if (drunkTimer > 0) {
     drunkTimer -= dt;
     document.getElementById('beer-countdown').textContent = Math.max(0, Math.ceil(drunkTimer));
-    if (drunkTimer <= 0) { drunkTimer = 0; drunkLevel = 0; document.getElementById('beer-warning-banner').classList.add('hidden'); addText(player.x, player.y - truckH * 0.7, 'Sober again', '#a3e635', 18); }
+    if (drunkTimer <= 0) { drunkTimer = 0; drunkLevel = 0; drunkCrashes = 0; document.getElementById('beer-warning-banner').classList.add('hidden'); addText(player.x, player.y - truckH * 0.7, 'Sober again', '#a3e635', 18); }
   }
   setDrunkAudio(drunkTimer > 0 ? drunkLevel : 0);
   if (player.invincibleTimer > 0) player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
@@ -1027,7 +1042,7 @@ function update(dt) {
     const b = beers[i]; b.t += dt;
     if (b.y > H + 40) { beers.splice(i, 1); continue; }
     if (!player.isExploded && Math.abs(b.x - player.x) < pr - 4 && Math.abs(b.y - player.y) < truckH / 2 + 10) {
-      drunkLevel = drunkTimer > 0 ? drunkLevel + 1 : 1; drunkTimer = DRUNK_TIME;
+      drunkLevel = drunkTimer > 0 ? drunkLevel + 1 : 1; drunkTimer = DRUNK_TIME; drunkCrashes = 0;
       document.getElementById('beer-warning-banner').classList.remove('hidden');
       document.getElementById('can-count').textContent = drunkLevel > 1 ? `CAN #${drunkLevel}! ` : '';
       flash = 0.6; screenShake = Math.max(screenShake, 10);
