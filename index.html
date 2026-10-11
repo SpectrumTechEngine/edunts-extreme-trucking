@@ -71,6 +71,12 @@
   #beer-warning-banner { animation: canbox .5s steps(2) infinite; }
   @keyframes canbox { 50% { border-color: #fde047; } }
   @keyframes jobflash { 50% { filter: brightness(1.6); } }
+  /* fuel gauge */
+  .fuel-bar { height: 12px; margin-top: 3px; border-radius: 6px; background: rgba(148,163,184,.25); overflow: hidden; border: 1px solid rgba(148,163,184,.35); }
+  .fuel-bar > div { height: 100%; border-radius: 6px; transition: width .4s; }
+  @media (min-width: 640px) { .fuel-bar { height: 16px; margin-top: 5px; } }
+  .fuel-low .fuel-bar { animation: fuelflash .5s steps(2) infinite; border-color: #ef4444; }
+  @keyframes fuelflash { 50% { background: rgba(239,68,68,.55); } }
   /* night shift / morning banner: same shape as the can banner, calm colours, gentle twinkle */
   #shift-banner { transition: opacity .4s; }
   #shift-banner.night { border-color: #818cf8; background: rgba(23, 20, 66, .92); }
@@ -124,7 +130,7 @@
 
   <!-- HUD -->
   <div id="hud" class="flex items-stretch gap-1.5 sm:gap-2 z-20">
-    <div class="hud-chip rounded-xl px-2 py-1 flex-1 min-w-0">
+    <div class="hud-chip rounded-xl px-2 py-1 flex-1 min-w-0" style="flex-grow:1.4">
       <div class="text-[10px] sm:text-xs text-slate-400 font-semibold">Pay</div>
       <div id="hud-wage" class="font-display text-sm sm:text-xl text-emerald-400 leading-tight">€0</div>
     </div>
@@ -135,6 +141,10 @@
     <div class="hud-chip rounded-xl px-2 py-1 flex-1 min-w-0">
       <div class="text-[10px] sm:text-xs text-slate-400 font-semibold">Crashes</div>
       <div id="hud-crashes" class="font-display text-sm sm:text-xl text-white leading-tight">0/10</div>
+    </div>
+    <div id="hud-fuel-chip" class="hud-chip rounded-xl px-2 py-1 flex-1 min-w-0" style="flex-grow:0.7">
+      <div class="text-[10px] sm:text-xs text-slate-400 font-semibold">Fuel</div>
+      <div id="hud-fuel"><div class="fuel-bar"><div style="width:100%;background:#22c55e"></div></div></div>
     </div>
     <div class="hud-chip rounded-xl px-2 py-1 flex-1 min-w-0">
       <div class="text-[10px] sm:text-xs text-slate-400 font-semibold">Speed</div>
@@ -189,6 +199,7 @@
           Truck stops sit off the road. Steer into the <span class="text-cyan-300 font-semibold">blue pick-up</span> lane and drive under the canopy to load up.
           Then haul it to the <span class="text-amber-300 font-semibold">orange drop-off</span> and drive through that too.
           Traffic gets faster and thicker with every delivery. Grab 🛡 shields, dodge the 🍺.
+          A tank lasts 8 deliveries: then fill up at the <span class="text-red-400 font-semibold">red ⛽ fuel stop</span> (€25).
         </div>
         <div id="menu-best" class="text-amber-400 font-semibold hidden"></div>
       </div>
@@ -207,7 +218,7 @@
 
     <!-- Day's Docket -->
     <div id="gameover-overlay" class="absolute inset-0 bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center p-3 sm:p-6 text-center z-30 hidden space-y-3 sm:space-y-4 overflow-y-auto">
-      <div class="font-display text-2xl sm:text-4xl text-white">Truck's totalled. Day over.</div>
+      <div id="dk-title" class="font-display text-2xl sm:text-4xl text-white">Truck's totalled. Day over.</div>
       <div id="dk-rating" class="text-sm sm:text-base text-amber-300 font-semibold"></div>
       <div class="w-full max-w-sm rounded-2xl bg-amber-50 text-slate-900 p-4 sm:p-5 text-left shadow-2xl font-sans" style="background-image: repeating-linear-gradient(0deg, transparent 0 27px, rgba(15,23,42,.06) 27px 28px);">
         <div class="flex justify-between items-baseline border-b-2 border-dashed border-slate-400 pb-2 mb-2">
@@ -220,10 +231,11 @@
           <div class="flex justify-between"><span>Loads delivered</span><span id="dk-deliveries" class="font-bold"></span></div>
           <div class="flex justify-between"><span>Rate per delivery</span><span class="font-bold">€50.00</span></div>
           <div id="dk-overtime-row" class="flex justify-between hidden"><span>🌙 On overtime (€75 each)</span><span id="dk-overtime" class="font-bold"></span></div>
+          <div id="dk-fuel-row" class="flex justify-between hidden"><span>⛽ Fuel (€25 a fill-up)</span><span id="dk-fuel" class="font-bold"></span></div>
           <div class="flex justify-between text-slate-600"><span>Distance driven</span><span id="dk-distance"></span></div>
           <div class="flex justify-between text-slate-600"><span>Time on the road</span><span id="dk-time"></span></div>
           <div class="flex justify-between text-slate-600"><span>Best run without a crash</span><span id="dk-streak"></span></div>
-          <div class="flex justify-between text-slate-600"><span>Trucks written off</span><span>10</span></div>
+          <div class="flex justify-between text-slate-600"><span>Trucks written off</span><span id="dk-trucks">10</span></div>
         </div>
         <div class="flex justify-between items-baseline border-t-2 border-slate-900 mt-3 pt-2">
           <span class="font-display">Day's pay</span>
@@ -450,6 +462,16 @@ const OVERTIME_PAY = 75, FIRST_NIGHT = 500, NIGHT_LEN = 500, DAY_LEN = 250;
 // Shield saves don't count, and the count starts again with every new can.
 const SOBER_AFTER_CRASHES = 2;
 let drunkCrashes = 0;
+// Fuel: a full tank lasts 8 deliveries. Then the next stops are red fuel stations (€25 to fill up).
+// Miss 3 and he runs dry: the truck slows down and one last fuel stop comes up.
+// Miss that one too and he rolls to a stop, and the day ends. Missed fuel stops aren't counted as missed stops.
+const TANK_DELIVERIES = 8, FUEL_COST = 25, FUEL_CHANCES = 3;
+let sinceFill = 0, fuelLow = false, fuelMissed = 0, outOfFuel = false, rollingStop = false, fuelSpent = 0, fuelStops = 0, endReason = '';
+function fuelLevel() {
+  if (rollingStop) return 0;
+  if (!fuelLow) return Math.max(0.1, 1 - sinceFill * 0.1125);
+  return 0.1 * (1 - fuelMissed / (FUEL_CHANCES + 1));
+}
 let wages = 0, night = false, nightAmt = 0, nextShift = FIRST_NIGHT, overtimeDeliveries = 0, shiftBannerTimer = 0;
 const payNow = () => (night ? OVERTIME_PAY : PAY);
 
@@ -467,7 +489,8 @@ let rowCursor = 0, trafficTimer = 1, shieldTimer = 10, beerTimer = 15;
 let isTutorialMode = false, tutorialStep = 0, tutorialStepCompleted = false;
 const inputSeen = { left: false, right: false, drive: false };
 
-const player = { x: 0, y: 0, speedY: 7, speedX: 0, angle: 0, isExploded: false, explosionTimer: 0, invincibleTimer: 0, shieldActive: false };
+// shieldActive is the blue shield; bonusShield is the green one you get every morning
+const player = { x: 0, y: 0, speedY: 7, speedX: 0, angle: 0, isExploded: false, explosionTimer: 0, invincibleTimer: 0, shieldActive: false, bonusShield: false };
 const keys = { left: false, right: false, up: false, brake: false };
 // Brake: slows the truck for up to a second per press, then it speeds back up. The clock and traffic keep ramping.
 let brakeT = 0, brakeCool = 0;
@@ -592,11 +615,12 @@ function initGameSession() {
   elapsedTime = 0; worldY = 0; screenShake = 0; flash = 0; brakeT = 0; brakeCool = 0; drunkTimer = 0; drunkLevel = 0; creep = 0; lastDrunkAudio = -1;
   deliveriesCount = 0; pickupsCount = 0; crashCount = 0; streak = 0; bestStreak = 0; distance = 0;
   wages = 0; night = false; nightAmt = 0; nextShift = FIRST_NIGHT; overtimeDeliveries = 0; hideShiftBanner(); drunkCrashes = 0;
+  sinceFill = 0; fuelLow = false; fuelMissed = 0; outOfFuel = false; rollingStop = false; fuelSpent = 0; fuelStops = 0; endReason = '';
   carrying = false; activeDepot = null; gameOverTimer = 0;
   distToNext = isTutorialMode ? 1e9 : 900;
   trafficTimer = 4; shieldTimer = rand(10, 16); beerTimer = rand(70, 80);
   player.x = laneCenter(2); player.speedY = baseSpeed(); player.speedX = 0; player.angle = 0;
-  player.isExploded = false; player.explosionTimer = 0; player.invincibleTimer = 0; player.shieldActive = false;
+  player.isExploded = false; player.explosionTimer = 0; player.invincibleTimer = 0; player.shieldActive = false; player.bonusShield = false;
   resetWorld();
   ['start-overlay', 'gameover-overlay', 'pause-overlay', 'beer-warning-banner'].forEach(id => document.getElementById(id).classList.add('hidden'));
   isPaused = false; isPlaying = true; lastTime = performance.now();
@@ -618,6 +642,10 @@ function gameOver() {
   document.getElementById('dk-time').textContent = `${mins}m ${String(secs).padStart(2, '0')}s`;
   document.getElementById('dk-streak').textContent = bestStreak + (bestStreak === 1 ? ' delivery' : ' deliveries');
   document.getElementById('dk-net').textContent = '€' + pay.toFixed(2);
+  document.getElementById('dk-title').textContent = endReason === 'fuel' ? 'Out of fuel! Edunts walked home.' : "Truck's totalled. Day over.";
+  document.getElementById('dk-trucks').textContent = crashCount;
+  document.getElementById('dk-fuel-row').classList.toggle('hidden', !fuelSpent);
+  document.getElementById('dk-fuel').textContent = '-€' + fuelSpent.toFixed(2);
   document.getElementById('dk-best').textContent = 'Best day: €' + Math.max(pay, best).toFixed(2);
   document.getElementById('dk-newbest').classList.toggle('hidden', !newBest || pay === 0);
   let rating;
@@ -630,7 +658,8 @@ function gameOver() {
   document.getElementById('dk-overtime-row').classList.toggle('hidden', !overtimeDeliveries);
   document.getElementById('dk-overtime').textContent = overtimeDeliveries + (overtimeDeliveries === 1 ? ' delivery' : ' deliveries');
   lastDay = { pay, deliveries: deliveriesCount, km: (distance / PX_PER_M / 1000).toFixed(1), time: `${mins}m ${String(secs).padStart(2, '0')}s`,
-    streak: bestStreak, newBest: newBest && pay > 0, rating, shared: false, overtime: overtimeDeliveries };
+    streak: bestStreak, newBest: newBest && pay > 0, rating, shared: false, overtime: overtimeDeliveries, fuel: endReason === 'fuel', fuelSpent };
+  if (!isTutorialMode) { if (endReason === 'fuel') ste('detail', 'ran-out-of-fuel'); if (fuelStops) ste('value', 'fuel-stops', fuelStops); }
   const ov = document.getElementById('gameover-overlay');
   ov.classList.remove('hidden');
   // Players are steering hard when the day ends: ignore taps for a moment so one can't land on a button
@@ -687,9 +716,9 @@ async function makeDocketImage() {
   x.textAlign = 'left'; x.fillStyle = '#0f172a'; x.font = disp(46); x.fillText("The day's docket", px + 50, py + 85);
   x.font = body(28, 500); x.fillStyle = '#64748b'; x.fillText('Edunts Haulage Ltd. · Driver copy', px + 50, py + 130);
   x.setLineDash([14, 10]); x.strokeStyle = '#94a3b8'; x.lineWidth = 3; x.beginPath(); x.moveTo(px + 50, py + 160); x.lineTo(px + pw - 50, py + 160); x.stroke(); x.setLineDash([]);
-  const rows = [['Loads delivered', String(d.deliveries)], ...(d.overtime ? [['🌙 On overtime', String(d.overtime)]] : []), ['Distance driven', d.km + ' km'], ['Time on the road', d.time], ['Best run without a crash', String(d.streak)]];
+  const rows = [['Loads delivered', String(d.deliveries)], ...(d.overtime ? [['🌙 On overtime', String(d.overtime)]] : []), ...(d.fuelSpent ? [['⛽ Fuel', '-€' + d.fuelSpent]] : []), ['Distance driven', d.km + ' km'], ['Time on the road', d.time], ['Best run without a crash', String(d.streak)]];
   rows.forEach(([k, v], i) => {
-    const y = py + 225 + i * 62;
+    const y = py + 225 + i * (rows.length > 5 ? 50 : 62);
     x.textAlign = 'left'; x.font = body(36, 600); x.fillStyle = '#334155'; x.fillText(k, px + 50, y);
     x.textAlign = 'right'; x.font = body(36, 800); x.fillStyle = '#0f172a'; x.fillText(v, px + pw - 50, y);
   });
@@ -710,7 +739,7 @@ async function makeDocketImage() {
 
 function docketMessage() {
   const d = lastDay;
-  return `🚛 I earned €${d.pay} on Edunts Extreme Trucking! ${d.deliveries} ${d.deliveries === 1 ? 'delivery' : 'deliveries'} before my truck was totalled` +
+  return `🚛 I earned €${d.pay} on Edunts Extreme Trucking! ${d.deliveries} ${d.deliveries === 1 ? 'delivery' : 'deliveries'} ${d.fuel ? 'before I ran out of fuel' : 'before my truck was totalled'}` +
          (d.overtime ? `, and I worked ${d.overtime} ${d.overtime === 1 ? 'delivery' : 'deliveries'} of overtime! 🌙` : '.') +
          `\n\nCan you beat my day? Play here:\n${GAME_URL}`;
 }
@@ -781,10 +810,13 @@ function bigExplosion(x, y, carColor) {
 
 function crash(car) {
   if (player.invincibleTimer > 0 || player.isExploded) return false;
-  if (player.shieldActive) {
-    player.shieldActive = false; player.invincibleTimer = 1.2;
-    burst(car.x, car.y, 30, ['#22d3ee', '#a5f3fc', '#ffffff'], 9);
-    addText(player.x, player.y - truckH * 0.7, 'Shield saved you!', '#22d3ee', 18);
+  if (player.bonusShield || player.shieldActive) {
+    // the green (morning) shield goes first, then the blue one
+    const green = player.bonusShield;
+    if (green) player.bonusShield = false; else player.shieldActive = false;
+    player.invincibleTimer = 1.2;
+    burst(car.x, car.y, 30, green ? ['#4ade80', '#bbf7d0', '#ffffff'] : ['#22d3ee', '#a5f3fc', '#ffffff'], 9);
+    addText(player.x, player.y - truckH * 0.7, 'Shield saved you!', green ? '#4ade80' : '#22d3ee', 18);
     screenShake = 10; playSound('smash');
     return true;
   }
@@ -829,7 +861,15 @@ function respawn() {
 function driveThrough(d) {
   d.done = true; d.flash = 1;
   activeDepot = null;
-  if (d.kind === 'pickup') {
+  if (d.kind === 'fuel') {
+    // fill up: costs €25 off the day's pay; any load on board stays on board
+    wages = Math.max(0, wages - FUEL_COST); fuelSpent += FUEL_COST; fuelStops++;
+    sinceFill = 0; fuelLow = false; fuelMissed = 0; outOfFuel = false;
+    burst(player.x, player.y, 34, ['#ef4444', '#fca5a5', '#ffffff', '#fde047'], 8, 'confetti');
+    addText(W / 2, H * 0.42, `⛽ TANK FULL! -€${FUEL_COST}`, '#f87171', 30, 1.6);
+    playSound('pickup');
+    distToNext = carrying ? 900 + rand(0, 700) : 1200 + rand(0, 600);
+  } else if (d.kind === 'pickup') {
     carrying = true; pickupsCount++;
     burst(player.x, player.y, 34, ['#22d3ee', '#a5f3fc', '#ffffff', '#fde047'], 8, 'confetti');
     addText(W / 2, H * 0.42, 'LOADED UP!', '#22d3ee', 34, 1.3);
@@ -844,6 +884,7 @@ function driveThrough(d) {
     burst(player.x, player.y, 70, ['#fbbf24', '#34d399', '#22d3ee', '#f472b6', '#ffffff'], 11, 'confetti');
     addText(W / 2, H * 0.4, night ? `DELIVERED! +€${earned} OVERTIME` : `DELIVERED! +€${earned}`, night ? '#a5b4fc' : '#34d399', night ? 32 : 36, 1.5);
     if (!isTutorialMode) checkShift();
+    if (!isTutorialMode) useFuel();
     if (streak >= 3) addText(W / 2, H * 0.4 + 40, `${streak} in a row without a crash!`, '#fde047', 16, 1.5);
     screenShake = Math.max(screenShake, 8);
     playSound('deliver');
@@ -852,18 +893,48 @@ function driveThrough(d) {
   }
 }
 
+/* ---------- Fuel ---------- */
+function useFuel() {
+  sinceFill++;
+  if (sinceFill < TANK_DELIVERIES || fuelLow) return;
+  fuelLow = true; fuelMissed = 0;
+  addText(W / 2, H * 0.4 + 72, '⛽ Running low! Next stops are fuel stations', '#f87171', 17, 2.6);
+  let seen = false;
+  try { seen = localStorage.getItem('edunts-fuel-seen') === '1'; localStorage.setItem('edunts-fuel-seen', '1'); } catch (e) {}
+  if (!seen) addText(W / 2, H * 0.4 + 100, `Drive through the red ⛽ stop to fill up (€${FUEL_COST})`, '#fecaca', 15, 3.6);
+}
+function missFuel() {
+  fuelMissed++;
+  playSound('miss');
+  if (fuelMissed < FUEL_CHANCES) {
+    const n = FUEL_CHANCES - fuelMissed;
+    addText(W / 2, H * 0.45, `Missed the fuel stop! ${n} more ${n === 1 ? 'chance' : 'chances'}`, '#fca5a5', 18, 1.8);
+    distToNext = 700 + rand(0, 500);
+  } else if (fuelMissed === FUEL_CHANCES) {
+    outOfFuel = true;
+    addText(W / 2, H * 0.4, '⛽ OUT OF FUEL!', '#ef4444', 32, 2);
+    addText(W / 2, H * 0.4 + 38, 'Coasting… one last fuel stop ahead!', '#fca5a5', 17, 2.4);
+    distToNext = 350;
+  } else {
+    rollingStop = true; endReason = 'fuel';
+    addText(W / 2, H * 0.4, 'Out of fuel! Edunts walked home.', '#ef4444', 24, 4);
+  }
+}
+
 /* ---------- Night shift and morning ---------- */
 function checkShift() {
   if (wages < nextShift) return;
   night = !night;
   nextShift += night ? NIGHT_LEN : DAY_LEN;
+  // surviving the night: a blue and a green shield, whatever he had before
+  if (!night) { player.shieldActive = true; player.bonusShield = true; }
   showShiftBanner(night);
   ste('detail', night ? 'night-shift' : 'morning');
 }
 function showShiftBanner(isNight) {
   const b = document.getElementById('shift-banner');
   document.getElementById('shift-title').textContent = isNight ? '🌙 EDUNTS WORKING OVERTIME 🌙' : '☀️ MORNING! ☀️';
-  document.getElementById('shift-sub').textContent = isNight ? `Time and a half — every delivery now pays €${OVERTIME_PAY}` : `Edunts made it through the night. Back to €${PAY} a delivery.`;
+  document.getElementById('shift-sub').textContent = isNight ? `Time and a half — every delivery now pays €${OVERTIME_PAY}` : `Edunts made it through the night. Back to €${PAY} a delivery. 🛡️🛡️ Bonus: double shield!`;
   b.classList.remove('hidden', 'night', 'day'); b.classList.add(isNight ? 'night' : 'day');
   b.style.opacity = '1';
   playSound(isNight ? 'respawn' : 'powerup');
@@ -878,6 +949,7 @@ function hideShiftBanner() {
 
 function missDepot(d) {
   d.missed = true; activeDepot = null;
+  if (d.kind === 'fuel') { missFuel(); return; }
   addText(W / 2, H * 0.45, d.kind === 'pickup' ? 'Missed the pick-up! Next one ahead' : 'Missed the drop-off! Next one ahead', '#fca5a5', 18, 1.6);
   playSound('miss');
   distToNext = isTutorialMode ? 300 : 700 + rand(0, 500);
@@ -923,6 +995,8 @@ function update(dt) {
   if (flash > 0) flash = Math.max(0, flash - dt * 2.5);
 
   if (gameOverTimer > 0) { gameOverTimer -= dt; if (gameOverTimer <= 0) { updateHUD(); gameOver(); return; } }
+  // out of fuel for good: once the truck has rolled to a stop, the day ends
+  if (rollingStop && !gameOverTimer && player.speedY < 0.3) { player.speedY = 0; gameOverTimer = 1.4; }
 
   // Player
   if (player.isExploded) {
@@ -952,9 +1026,10 @@ function update(dt) {
     else brakeCool = Math.max(0, brakeCool - dt);
     if (brakeT > 0) player.speedY = Math.max(Math.max(3, baseSpeed() * 0.4), player.speedY - 0.3 * f);
     else {
-      const target = keys.up ? topSpeed() : baseSpeed();
+      // out of fuel: no boost, the truck coasts down to under half speed (or all the way to a stop)
+      const target = rollingStop ? 0 : outOfFuel ? baseSpeed() * 0.45 : keys.up ? topSpeed() : baseSpeed();
       if (player.speedY < target) player.speedY = Math.min(target, player.speedY + 0.22 * f);
-      else player.speedY = Math.max(target, player.speedY - 0.1 * f);
+      else player.speedY = Math.max(target, player.speedY - (outOfFuel || rollingStop ? 0.04 : 0.1) * f);
     }
   }
   const dy = player.speedY * f;
@@ -971,9 +1046,9 @@ function update(dt) {
   }
 
   // Depots
-  if (!activeDepot) {
+  if (!activeDepot && !rollingStop) {
     distToNext -= dy;
-    if (distToNext <= 0) spawnDepot(carrying ? 'dropoff' : 'pickup');
+    if (distToNext <= 0) spawnDepot(fuelLow ? 'fuel' : carrying ? 'dropoff' : 'pickup');
   }
   for (const d of depots) {
     if (d.flash > 0) d.flash -= dt;
@@ -986,7 +1061,7 @@ function update(dt) {
   }
 
   // Traffic
-  if (!isTutorialMode || tutorialStep >= 5) {
+  if ((!isTutorialMode || tutorialStep >= 5) && !rollingStop) {
     trafficTimer -= dt;
     if (trafficTimer <= 0) {
       spawnTraffic(isEasy());
@@ -1010,7 +1085,7 @@ function update(dt) {
     if (c.blink > 0) { c.blink -= dt; if (c.blink <= 0) c.lane = c.target; }
     c.x += (laneCenter(c.lane) - c.x) * Math.min(1, 0.06 * f);
     if (c.y > H + 200 || c.y < -600) { traffic.splice(i, 1); continue; }
-    if (!player.isExploded && hits(player.x, player.y, tw, th, c.x, c.y, c.w * 0.9, c.h * 0.94)) {
+    if (!player.isExploded && !rollingStop && hits(player.x, player.y, tw, th, c.x, c.y, c.w * 0.9, c.h * 0.94)) {
       if (crash(c)) traffic.splice(i, 1);
     }
   }
@@ -1034,7 +1109,10 @@ function update(dt) {
     const p = powerups[i]; p.t += dt;
     if (p.y > H + 40) { powerups.splice(i, 1); continue; }
     if (!player.isExploded && Math.abs(p.x - player.x) < pr && Math.abs(p.y - player.y) < truckH / 2 + 14) {
-      player.shieldActive = true; addText(p.x, p.y, 'Shield on', '#22d3ee', 18); playSound('powerup');
+      // shields never stack: a pick-up only helps when he has no shield at all
+      if (!player.shieldActive && !player.bonusShield) { player.shieldActive = true; addText(p.x, p.y, 'Shield on', '#22d3ee', 18); }
+      else addText(p.x, p.y, 'Already shielded', '#94a3b8', 15);
+      playSound('powerup');
       burst(p.x, p.y, 16, ['#22d3ee', '#ffffff'], 5); powerups.splice(i, 1);
     }
   }
@@ -1085,7 +1163,7 @@ function jobInfo() {
     const m = Math.max(0, Math.round((player.y - activeDepot.y) / PX_PER_M));
     return { kind: activeDepot.kind, side: activeDepot.side, m };
   }
-  return { kind: carrying ? 'dropoff' : 'pickup', side: null, m: Math.round((distToNext + player.y + 320) / PX_PER_M) };
+  return { kind: fuelLow ? 'fuel' : carrying ? 'dropoff' : 'pickup', side: null, m: Math.round((distToNext + player.y + 320) / PX_PER_M) };
 }
 function updateHUD(force) {
   if (force) for (const k in hudCache) delete hudCache[k];
@@ -1094,18 +1172,23 @@ function updateHUD(force) {
   const left = MAX_CRASHES - crashCount;
   setHUD('hud-crashes', `<span class="${left <= 3 ? 'text-red-400' : ''}">${crashCount}/${MAX_CRASHES}</span>`);
   setHUD('hud-speed', Math.round(player.speedY * 9) + '<span class="text-[10px] sm:text-xs text-slate-400"> km/h</span>');
+  const fl = isPlaying ? fuelLevel() : 1, fpct = Math.round(fl * 100);
+  setHUD('hud-fuel', `<div class="fuel-bar"><div style="width:${Math.max(fpct, rollingStop ? 0 : 3)}%;background:${fl > 0.5 ? '#22c55e' : fl > 0.25 ? '#f59e0b' : '#ef4444'}"></div></div>`);
+  document.getElementById('hud-fuel-chip').classList.toggle('fuel-low', isPlaying && fuelLow);
   const j = jobInfo(), job = document.getElementById('hud-job');
   let text;
   if (!isPlaying) text = 'Clock in to start hauling';
   else if (isTutorialMode && tutorialStep < 3) text = 'Training: follow the steps above';
-  else if (j.side) text = `${j.kind === 'pickup' ? '📦 Pick-up' : '🏁 Drop-off'} on the ${j.side.toUpperCase()} ${j.side === 'left' ? '◄◄' : '►►'} ${j.m} m`;
+  else if (rollingStop) text = '⛽ Out of fuel… rolling to a stop';
+  else if (j.side) text = `${j.kind === 'fuel' ? '⛽ Fuel' : j.kind === 'pickup' ? '📦 Pick-up' : '🏁 Drop-off'} on the ${j.side.toUpperCase()} ${j.side === 'left' ? '◄◄' : '►►'} ${j.m} m`;
+  else if (j.kind === 'fuel') text = `⛽ ${outOfFuel ? 'LAST CHANCE! Fuel stop' : 'Fuel stop'} in ${j.m} m`;
   else if (j.kind === 'pickup') text = `📦 Next pick-up in ${j.m} m`;
   else text = `🚛 Loaded! Drop-off in ${j.m} m · €${payNow()} waiting${night ? ' (overtime)' : ''}`;
   setHUD('hud-job', text);
   const urgent = isPlaying && !!j.side && j.m < 90;
   job.classList.toggle('urgent', urgent);
-  job.style.color = j.kind === 'pickup' ? '#67e8f9' : '#fcd34d';
-  job.style.borderColor = j.side ? (j.kind === 'pickup' ? '#22d3ee' : '#f59e0b') : '';
+  job.style.color = j.kind === 'fuel' ? '#fca5a5' : j.kind === 'pickup' ? '#67e8f9' : '#fcd34d';
+  job.style.borderColor = j.side ? (j.kind === 'fuel' ? '#ef4444' : j.kind === 'pickup' ? '#22d3ee' : '#f59e0b') : '';
 }
 
 /* ============================ Render ============================ */
@@ -1114,7 +1197,7 @@ function rr(x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
-const depotColor = d => d.done ? '#10b981' : d.missed ? '#64748b' : d.kind === 'pickup' ? '#22d3ee' : '#f59e0b';
+const depotColor = d => d.done ? '#10b981' : d.missed ? '#64748b' : d.kind === 'fuel' ? '#ef4444' : d.kind === 'pickup' ? '#22d3ee' : '#f59e0b';
 
 function drawBayBase(d) {
   const top = d.y - d.len / 2, bot = d.y + d.len / 2, s = d.side === 'left' ? -1 : 1;
@@ -1131,7 +1214,7 @@ function drawBayBase(d) {
   ctx.save(); ctx.translate(edge + s * road.bayW / 2, d.y + d.len * 0.22); ctx.rotate(-Math.PI / 2);
   ctx.fillStyle = col; ctx.globalAlpha = 0.7;
   ctx.font = `${clamp(road.bayW * 0.34, 10, 20)}px "Russo One", Impact, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(d.kind === 'pickup' ? 'PICK-UP' : 'DROP-OFF', 0, 0);
+  ctx.fillText(d.kind === 'fuel' ? 'FUEL' : d.kind === 'pickup' ? 'PICK-UP' : 'DROP-OFF', 0, 0);
   ctx.restore(); ctx.globalAlpha = 1;
 }
 function drawBayCanopy(d) {
@@ -1156,7 +1239,7 @@ function drawBayCanopy(d) {
   for (const px of [x0, x0 + cw - 6]) { ctx.fillRect(px, d.y - ch / 2, 6, 6); ctx.fillRect(px, d.y + ch / 2 - 6, 6, 6); }
   ctx.font = `${clamp(cw * 0.2, 9, 15)}px "Russo One", Impact, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#fff';
-  ctx.fillText(d.done ? '✓' : d.missed ? '✕' : d.kind === 'pickup' ? 'LOAD' : 'DROP', x0 + cw / 2, d.y);
+  ctx.fillText(d.done ? '✓' : d.missed ? '✕' : d.kind === 'fuel' ? '⛽' : d.kind === 'pickup' ? 'LOAD' : 'DROP', x0 + cw / 2, d.y);
   if (d.flash > 0) { ctx.globalAlpha = d.flash; ctx.fillStyle = '#fff'; ctx.fillRect(x0, d.y - ch / 2, cw, ch); ctx.globalAlpha = 1; }
 }
 
@@ -1291,6 +1374,12 @@ function drawTruck() {
     ctx.save(); ctx.strokeStyle = 'rgba(34,211,238,.8)'; ctx.lineWidth = 3; ctx.shadowColor = '#22d3ee'; ctx.shadowBlur = 16;
     ctx.beginPath(); ctx.ellipse(x, y, w * 0.95, h * 0.62, 0, 0, 7); ctx.stroke(); ctx.restore();
   }
+  if (player.bonusShield) {
+    // the green morning shield sits outside the blue one
+    const k = player.shieldActive ? 1.18 : 1;
+    ctx.save(); ctx.strokeStyle = 'rgba(74,222,128,.85)'; ctx.lineWidth = 3; ctx.shadowColor = '#4ade80'; ctx.shadowBlur = 16;
+    ctx.beginPath(); ctx.ellipse(x, y, w * 0.95 * k, h * 0.62 * (player.shieldActive ? 1.1 : 1), 0, 0, 7); ctx.stroke(); ctx.restore();
+  }
 }
 function drawPickup(x, y, t, color, emoji, hazard) {
   const bob = Math.sin(t * 5) * 3;
@@ -1305,7 +1394,7 @@ function drawIncoming() {
   const d = activeDepot;
   if (!d || d.y + d.len / 2 > 0) return;
   const s = d.side === 'left' ? -1 : 1, x = d.side === 'left' ? road.x - road.bayW / 2 : road.x + road.w + road.bayW / 2;
-  const col = d.kind === 'pickup' ? '#22d3ee' : '#f59e0b', p = 0.5 + 0.5 * Math.sin(performance.now() / 90);
+  const col = d.kind === 'fuel' ? '#ef4444' : d.kind === 'pickup' ? '#22d3ee' : '#f59e0b', p = 0.5 + 0.5 * Math.sin(performance.now() / 90);
   ctx.globalAlpha = 0.5 + 0.5 * p; ctx.fillStyle = col;
   for (let k = 0; k < 2; k++) { const yy = 14 + k * 14; ctx.beginPath(); ctx.moveTo(x - 12, yy + 10); ctx.lineTo(x, yy); ctx.lineTo(x + 12, yy + 10); ctx.lineTo(x + 12, yy + 14); ctx.lineTo(x, yy + 4); ctx.lineTo(x - 12, yy + 14); ctx.closePath(); ctx.fill(); }
   ctx.globalAlpha = 1;
@@ -1366,9 +1455,11 @@ function render() {
   }
   if (drunkTimer > 0) { ctx.fillStyle = `rgba(234,179,8,${0.07 + 0.04 * Math.sin(elapsedTime * 3)})`; ctx.fillRect(0, 0, W, H); }
   if (flash > 0) { ctx.fillStyle = `rgba(255,237,213,${flash * 0.6})`; ctx.fillRect(0, 0, W, H); }
-  if (isPlaying && player.shieldActive) {
+  if (isPlaying && (player.shieldActive || player.bonusShield)) {
+    const both = player.shieldActive && player.bonusShield;
     ctx.font = '600 12px Barlow, system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(15,23,42,.85)'; rr(10, H - 34, 80, 22, 11); ctx.fill(); ctx.fillStyle = '#67e8f9'; ctx.fillText('🛡️ Shield', 20, H - 22.5);
+    ctx.fillStyle = 'rgba(15,23,42,.85)'; rr(10, H - 34, both ? 92 : 80, 22, 11); ctx.fill();
+    ctx.fillStyle = player.bonusShield ? '#86efac' : '#67e8f9'; ctx.fillText(both ? '🛡️🛡️ ×2' : '🛡️ Shield', 20, H - 22.5);
   }
 }
 /* ---------- Night scenery ---------- */
