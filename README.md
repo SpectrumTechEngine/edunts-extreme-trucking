@@ -1,8 +1,8 @@
-# Edunts Extreme Trucking
+# Edunts Extreme Trucking has moved
 
-Blast through the pick-up, haul it, blast through the drop-off. Every delivery pays €50.
-Traffic gets faster with every load. Ten crashes and your day is done.
+The game is now **Erdint's Extreme Trucking**:
 
-Play: https://thespectrumtechengine.com/edunts-extreme-trucking/
+- Play: https://thespectrumtechengine.com/erdints-extreme-trucking/
+- Code: https://github.com/SpectrumTechEngine/erdints-extreme-trucking
 
-Created by The Spectrum Tech Engine.
+This repo only keeps a redirect page, so old links and older Android apps still work.

@@ -1,20 +1,8 @@
-﻿// Edunts Extreme Trucking service worker: always fetch the newest game when online, fall back to the saved copy offline.
-const C = 'edunts-trucking-v9';
-const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
-self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(C).then((c) => c.addAll(FILES)).catch(() => {})); });
+// The game moved to /erdints-extreme-trucking/. This clears the old offline copy and switches itself off,
+// so phones that had the old game saved always reach the redirect page.
+self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((k) => Promise.all(k.filter((x) => x !== C).map((x) => caches.delete(x)))).then(() => self.clients.claim()));
-});
-self.addEventListener('fetch', (e) => {
-  const r = e.request; if (r.method !== 'GET') return;
-  if (r.mode === 'navigate') { // network first for the game itself
-    e.respondWith(fetch(r).then((res) => { const cp = res.clone(); caches.open(C).then((c) => c.put('index.html', cp)); return res; })
-      .catch(() => caches.match('index.html')));
-    return;
-  }
-  // Styles, fonts and icons: use the saved copy, refresh it in the background
-  e.respondWith(caches.match(r).then((m) => {
-    const f = fetch(r).then((res) => { if (res && (res.ok || res.type === 'opaque')) { const cp = res.clone(); caches.open(C).then((c) => c.put(r, cp)); } return res; }).catch(() => m);
-    return m || f;
-  }));
+  e.waitUntil(caches.keys().then((k) => Promise.all(k.map((x) => caches.delete(x))))
+    .then(() => self.registration.unregister())
+    .then(() => self.clients.matchAll()).then((cs) => cs.forEach((c) => c.navigate(c.url))));
 });
