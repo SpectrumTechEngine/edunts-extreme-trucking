@@ -143,7 +143,7 @@
       <div id="hud-crashes" class="font-display text-sm sm:text-xl text-white leading-tight">0/10</div>
     </div>
     <div id="hud-fuel-chip" class="hud-chip rounded-xl px-2 py-1 flex-1 min-w-0" style="flex-grow:0.7">
-      <div class="text-[10px] sm:text-xs text-slate-400 font-semibold">Fuel</div>
+      <div class="text-[10px] sm:text-xs text-slate-400 font-semibold">Fuel<span id="hud-card" class="hidden"> 💳</span></div>
       <div id="hud-fuel"><div class="fuel-bar"><div style="width:100%;background:#22c55e"></div></div></div>
     </div>
     <div class="hud-chip rounded-xl px-2 py-1 flex-1 min-w-0">
@@ -164,6 +164,7 @@
     <div id="shift-banner" class="absolute left-2 right-2 z-20 hidden rounded-2xl border-4 px-3 py-2 sm:py-3 text-center pointer-events-none" style="top: 30%;">
       <div class="shift-title font-display text-2xl sm:text-5xl leading-none" id="shift-title"></div>
       <div class="mt-1 text-xs sm:text-base text-indigo-100 font-bold" id="shift-sub"></div>
+      <div class="mt-1 text-xs sm:text-base text-emerald-300 font-bold hidden" id="shift-card">💳 Fuel card: your next fill-up is free!</div>
     </div>
     <div id="beer-warning-banner" class="absolute top-2 left-2 right-2 z-20 hidden rounded-2xl border-4 border-red-500 bg-red-950/90 px-3 py-2 sm:py-3 text-center pointer-events-none">
       <div class="can-flash font-display text-2xl sm:text-5xl leading-none">🍺 EDUNTS HAD A CAN 🍺</div>
@@ -232,6 +233,7 @@
           <div class="flex justify-between"><span>Rate per delivery</span><span class="font-bold">€50.00</span></div>
           <div id="dk-overtime-row" class="flex justify-between hidden"><span>🌙 On overtime (€75 each)</span><span id="dk-overtime" class="font-bold"></span></div>
           <div id="dk-fuel-row" class="flex justify-between hidden"><span>⛽ Fuel (€25 a fill-up)</span><span id="dk-fuel" class="font-bold"></span></div>
+          <div id="dk-card-row" class="flex justify-between hidden"><span>💳 Free fill-ups (fuel card)</span><span id="dk-card" class="font-bold"></span></div>
           <div class="flex justify-between text-slate-600"><span>Distance driven</span><span id="dk-distance"></span></div>
           <div class="flex justify-between text-slate-600"><span>Time on the road</span><span id="dk-time"></span></div>
           <div class="flex justify-between text-slate-600"><span>Best run without a crash</span><span id="dk-streak"></span></div>
@@ -467,6 +469,8 @@ let drunkCrashes = 0;
 // Miss that one too and he rolls to a stop, and the day ends. Missed fuel stops aren't counted as missed stops.
 const TANK_DELIVERIES = 8, FUEL_COST = 25, FUEL_CHANCES = 3;
 let sinceFill = 0, fuelLow = false, fuelMissed = 0, outOfFuel = false, rollingStop = false, fuelSpent = 0, fuelStops = 0, endReason = '';
+// Fuel card: every morning he gets one (only one at a time); it pays for the next fill-up. Missing a fuel stop keeps it.
+let fuelCard = false, freeFills = 0;
 function fuelLevel() {
   if (rollingStop) return 0;
   if (!fuelLow) return Math.max(0.1, 1 - sinceFill * 0.1125);
@@ -616,6 +620,7 @@ function initGameSession() {
   deliveriesCount = 0; pickupsCount = 0; crashCount = 0; streak = 0; bestStreak = 0; distance = 0;
   wages = 0; night = false; nightAmt = 0; nextShift = FIRST_NIGHT; overtimeDeliveries = 0; hideShiftBanner(); drunkCrashes = 0;
   sinceFill = 0; fuelLow = false; fuelMissed = 0; outOfFuel = false; rollingStop = false; fuelSpent = 0; fuelStops = 0; endReason = '';
+  fuelCard = false; freeFills = 0;
   carrying = false; activeDepot = null; gameOverTimer = 0;
   distToNext = isTutorialMode ? 1e9 : 900;
   trafficTimer = 4; shieldTimer = rand(10, 16); beerTimer = rand(70, 80);
@@ -646,6 +651,8 @@ function gameOver() {
   document.getElementById('dk-trucks').textContent = crashCount;
   document.getElementById('dk-fuel-row').classList.toggle('hidden', !fuelSpent);
   document.getElementById('dk-fuel').textContent = '-€' + fuelSpent.toFixed(2);
+  document.getElementById('dk-card-row').classList.toggle('hidden', !freeFills);
+  document.getElementById('dk-card').textContent = freeFills;
   document.getElementById('dk-best').textContent = 'Best day: €' + Math.max(pay, best).toFixed(2);
   document.getElementById('dk-newbest').classList.toggle('hidden', !newBest || pay === 0);
   let rating;
@@ -658,7 +665,7 @@ function gameOver() {
   document.getElementById('dk-overtime-row').classList.toggle('hidden', !overtimeDeliveries);
   document.getElementById('dk-overtime').textContent = overtimeDeliveries + (overtimeDeliveries === 1 ? ' delivery' : ' deliveries');
   lastDay = { pay, deliveries: deliveriesCount, km: (distance / PX_PER_M / 1000).toFixed(1), time: `${mins}m ${String(secs).padStart(2, '0')}s`,
-    streak: bestStreak, newBest: newBest && pay > 0, rating, shared: false, overtime: overtimeDeliveries, fuel: endReason === 'fuel', fuelSpent };
+    streak: bestStreak, newBest: newBest && pay > 0, rating, shared: false, overtime: overtimeDeliveries, fuel: endReason === 'fuel', fuelSpent, freeFills };
   if (!isTutorialMode) { if (endReason === 'fuel') ste('detail', 'ran-out-of-fuel'); if (fuelStops) ste('value', 'fuel-stops', fuelStops); }
   const ov = document.getElementById('gameover-overlay');
   ov.classList.remove('hidden');
@@ -716,7 +723,7 @@ async function makeDocketImage() {
   x.textAlign = 'left'; x.fillStyle = '#0f172a'; x.font = disp(46); x.fillText("The day's docket", px + 50, py + 85);
   x.font = body(28, 500); x.fillStyle = '#64748b'; x.fillText('Edunts Haulage Ltd. · Driver copy', px + 50, py + 130);
   x.setLineDash([14, 10]); x.strokeStyle = '#94a3b8'; x.lineWidth = 3; x.beginPath(); x.moveTo(px + 50, py + 160); x.lineTo(px + pw - 50, py + 160); x.stroke(); x.setLineDash([]);
-  const rows = [['Loads delivered', String(d.deliveries)], ...(d.overtime ? [['🌙 On overtime', String(d.overtime)]] : []), ...(d.fuelSpent ? [['⛽ Fuel', '-€' + d.fuelSpent]] : []), ['Distance driven', d.km + ' km'], ['Time on the road', d.time], ['Best run without a crash', String(d.streak)]];
+  const rows = [['Loads delivered', String(d.deliveries)], ...(d.overtime ? [['🌙 On overtime', String(d.overtime)]] : []), ...(d.fuelSpent ? [['⛽ Fuel', '-€' + d.fuelSpent]] : []), ...(d.freeFills ? [['💳 Free fill-ups', String(d.freeFills)]] : []), ['Distance driven', d.km + ' km'], ['Time on the road', d.time], ['Best run without a crash', String(d.streak)]];
   rows.forEach(([k, v], i) => {
     const y = py + 225 + i * (rows.length > 5 ? 50 : 62);
     x.textAlign = 'left'; x.font = body(36, 600); x.fillStyle = '#334155'; x.fillText(k, px + 50, y);
@@ -863,10 +870,14 @@ function driveThrough(d) {
   activeDepot = null;
   if (d.kind === 'fuel') {
     // fill up: costs €25 off the day's pay; any load on board stays on board
-    wages = Math.max(0, wages - FUEL_COST); fuelSpent += FUEL_COST; fuelStops++;
+    const free = fuelCard;
+    if (free) { fuelCard = false; freeFills++; }
+    else { wages = Math.max(0, wages - FUEL_COST); fuelSpent += FUEL_COST; }
+    fuelStops++;
     sinceFill = 0; fuelLow = false; fuelMissed = 0; outOfFuel = false;
-    burst(player.x, player.y, 34, ['#ef4444', '#fca5a5', '#ffffff', '#fde047'], 8, 'confetti');
-    addText(W / 2, H * 0.42, `⛽ TANK FULL! -€${FUEL_COST}`, '#f87171', 30, 1.6);
+    burst(player.x, player.y, 34, free ? ['#4ade80', '#bbf7d0', '#ffffff', '#fde047'] : ['#ef4444', '#fca5a5', '#ffffff', '#fde047'], 8, 'confetti');
+    if (free) addText(W / 2, H * 0.42, '💳 FUEL CARD! Tank full, free', '#4ade80', 26, 1.8);
+    else addText(W / 2, H * 0.42, `⛽ TANK FULL! -€${FUEL_COST}`, '#f87171', 30, 1.6);
     playSound('pickup');
     distToNext = carrying ? 900 + rand(0, 700) : 1200 + rand(0, 600);
   } else if (d.kind === 'pickup') {
@@ -927,7 +938,7 @@ function checkShift() {
   night = !night;
   nextShift += night ? NIGHT_LEN : DAY_LEN;
   // surviving the night: a blue and a green shield, whatever he had before
-  if (!night) { player.shieldActive = true; player.bonusShield = true; }
+  if (!night) { player.shieldActive = true; player.bonusShield = true; fuelCard = true; }
   showShiftBanner(night);
   ste('detail', night ? 'night-shift' : 'morning');
 }
@@ -935,6 +946,7 @@ function showShiftBanner(isNight) {
   const b = document.getElementById('shift-banner');
   document.getElementById('shift-title').textContent = isNight ? '🌙 EDUNTS WORKING OVERTIME 🌙' : '☀️ MORNING! ☀️';
   document.getElementById('shift-sub').textContent = isNight ? `Time and a half — every delivery now pays €${OVERTIME_PAY}` : `Edunts made it through the night. Back to €${PAY} a delivery. 🛡️🛡️ Bonus: double shield!`;
+  document.getElementById('shift-card').classList.toggle('hidden', isNight);
   b.classList.remove('hidden', 'night', 'day'); b.classList.add(isNight ? 'night' : 'day');
   b.style.opacity = '1';
   playSound(isNight ? 'respawn' : 'powerup');
@@ -1175,13 +1187,14 @@ function updateHUD(force) {
   const fl = isPlaying ? fuelLevel() : 1, fpct = Math.round(fl * 100);
   setHUD('hud-fuel', `<div class="fuel-bar"><div style="width:${Math.max(fpct, rollingStop ? 0 : 3)}%;background:${fl > 0.5 ? '#22c55e' : fl > 0.25 ? '#f59e0b' : '#ef4444'}"></div></div>`);
   document.getElementById('hud-fuel-chip').classList.toggle('fuel-low', isPlaying && fuelLow);
+  document.getElementById('hud-card').classList.toggle('hidden', !(isPlaying && fuelCard));
   const j = jobInfo(), job = document.getElementById('hud-job');
   let text;
   if (!isPlaying) text = 'Clock in to start hauling';
   else if (isTutorialMode && tutorialStep < 3) text = 'Training: follow the steps above';
   else if (rollingStop) text = '⛽ Out of fuel… rolling to a stop';
   else if (j.side) text = `${j.kind === 'fuel' ? '⛽ Fuel' : j.kind === 'pickup' ? '📦 Pick-up' : '🏁 Drop-off'} on the ${j.side.toUpperCase()} ${j.side === 'left' ? '◄◄' : '►►'} ${j.m} m`;
-  else if (j.kind === 'fuel') text = `⛽ ${outOfFuel ? 'LAST CHANCE! Fuel stop' : 'Fuel stop'} in ${j.m} m`;
+  else if (j.kind === 'fuel') text = `⛽ ${outOfFuel ? 'LAST CHANCE! Fuel stop' : 'Fuel stop'} in ${j.m} m${fuelCard ? ' · 💳 free' : ''}`;
   else if (j.kind === 'pickup') text = `📦 Next pick-up in ${j.m} m`;
   else text = `🚛 Loaded! Drop-off in ${j.m} m · €${payNow()} waiting${night ? ' (overtime)' : ''}`;
   setHUD('hud-job', text);
